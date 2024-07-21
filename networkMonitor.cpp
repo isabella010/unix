@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <sys/select.h>
 
-#define SOCKET_PATH "/tmp/network_monitor"
+#define SOCKET_PATH "/tmp/interfaceMonitor.socket"
 #define BUF_SIZE 200
 
 using namespace std;
@@ -21,15 +21,14 @@ vector<int> clientFds;
 vector<string> interfaces;
 
 void handleSigint(int sig) {
-    for (auto i = 0; i < clientFds.size(); ++i) {
-        write(clientFds[i], "shut down", 9);
+    for (int fd : clientFds) {
+        write(fd, "Shut Down", 10);
     }
     close(serverFd);
     unlink(SOCKET_PATH);
-    for (auto i = 0; i < clientFds.size(); ++i) {
-        close(clientFds[i]);
+    for (int fd : clientFds) {
+        close(fd);
     }
-
     exit(0);
 }
 
@@ -40,12 +39,12 @@ int main() {
     char buffer[BUF_SIZE];
 
     int numInterfaces;
-    cout << "enter # interfaces to monitor: ";
+    cout << "Enter # interfaces to monitor: ";
     cin >> numInterfaces;
 
     for (int i = 0; i < numInterfaces; ++i) {
         string interface;
-        cout << "enter name of interface " << i + 1 << ": ";
+        cout << "Enter name of interface " << i + 1 << ": ";
         cin >> interface;
         interfaces.push_back(interface);
     }
@@ -70,79 +69,69 @@ int main() {
         exit(-1);
     }
 
-    if (fork() == 0) {
-        for (auto i = 0; i < interfaces.size(); ++i) {
-            if (fork() == 0) {
-                cout << interfaces[i] << endl;
-                execl("./intfMonitor", "intfMonitor", interfaces[i].c_str(), NULL);
-                perror("execl");
-                exit(-1);
-            }
+    cout << "Waiting for connections..." << endl;
+
+    fd_set active_fd_set;
+    fd_set read_fd_set;
+    FD_ZERO(&active_fd_set);
+    FD_SET(serverFd, &active_fd_set);
+    int max_fd = serverFd;
+
+    while (true) {
+        read_fd_set = active_fd_set;
+        if (select(max_fd + 1, &read_fd_set, NULL, NULL, NULL) < 0) {
+            perror("select");
+            break;
         }
-    }
-    else{
-	fd_set active_fd_set;
-	fd_set read_fd_set;
-        FD_ZERO(&active_fd_set);
-        FD_SET(serverFd, &active_fd_set);
-        int max_fd= serverFd;
 
-        while(true){
-	    read_fd_set = active_fd_set;
-             if(select(max_fd + 1, &read_fd_set, NULL, NULL, NULL)< 0) {
-                perror("select");
-                break;
-            }	    
-
-            for(int i = 0; i <= max_fd; ++i) {
-                if(FD_ISSET(i, &read_fd_set)) {
-                    if(i == serverFd) {
-                        int clientFd = accept(serverFd, NULL, NULL);
-                        if(clientFd < 0) {
-                            perror("accept");
-                        } 
-                        else{
-                            FD_SET(clientFd, &active_fd_set);
-                            if(clientFd > max_fd) {
-                                max_fd = clientFd;
-                            }
-                            clientFds.push_back(clientFd);
+        for (int i = 0; i <= max_fd; ++i) {
+            if (FD_ISSET(i, &read_fd_set)) {
+                if (i == serverFd) {
+                    int clientFd = accept(serverFd, NULL, NULL);
+                    if (clientFd < 0) {
+                        perror("accept");
+                    } else {
+                        FD_SET(clientFd, &active_fd_set);
+                        if (clientFd > max_fd) {
+                            max_fd = clientFd;
                         }
+                        clientFds.push_back(clientFd);
+                        cout << "Accepted connection from client" << endl;
                     }
-                    else{
-                        auto ret= read(i, buffer, BUF_SIZE);
-                        if(ret <= 0) { //THIS IS WEIRD?!?!?!??!?!?!?!?!??!?!??!?!?!?!?!?!??!?!?!?!?!??!?
-                            if(ret < 0){ 
-				perror("read"); 
-			    }
+                } else {
+                    int ret = read(i, buffer, BUF_SIZE);
+                    if (ret <= 0) {
+                        if (ret < 0) {
+                            perror("read");
+                        }
+                        close(i);
+                        FD_CLR(i, &active_fd_set);
+                        clientFds.erase(remove(clientFds.begin(), clientFds.end(), i), clientFds.end());
+                        cout << "Client disconnected" << endl;
+                    } else {
+                        buffer[ret] = '\0';
+                        cout << "Received from client: " << buffer << endl; // Debug output
+                        if (strncmp(buffer, "Ready", 5) == 0) {
+                            write(i, "Monitor", 7);
+                        } else if (strncmp(buffer, "Link Down", 9) == 0) {
+                            write(i, "Set Link Up", 11);
+                        } else if (strncmp(buffer, "Done", 4) == 0) {
                             close(i);
                             FD_CLR(i, &active_fd_set);
                             clientFds.erase(remove(clientFds.begin(), clientFds.end(), i), clientFds.end());
-                        } 
-                        else{
-                            if(strncmp(buffer, "Ready", 5) == 0) {
-                                write(i, "Monitor", 7);
-                            }
-                            else if(strncmp(buffer, "Link Down", 9) == 0) {
-                                write(i, "Set Link Up", 11);
-                            }
-                            else if(strncmp(buffer, "Done", 4) == 0) {
-                                close(i);
-                                FD_CLR(i, &active_fd_set);
-                                clientFds.erase(remove(clientFds.begin(), clientFds.end(), i), clientFds.end());
-                            }
+                            cout << "Client marked as done" << endl;
                         }
                     }
                 }
             }
         }
+    }
 
     close(serverFd);
     unlink(SOCKET_PATH);
-    for (auto i = 0; i < clientFds.size(); ++i) {
-        close(clientFds[i]);
+    for (int fd : clientFds) {
+        close(fd);
     }
 
     return 0;
-}
 }
