@@ -77,6 +77,13 @@ int main() {
     FD_SET(serverFd, &active_fd_set);
     int max_fd = serverFd;
 
+    for (const string &interface : interfaces) {
+        if (fork() == 0) {
+            execl("./interfaceMon", "./interfaceMon", interface.c_str(), NULL);
+            exit(0);
+        }
+    }
+
     while (true) {
         read_fd_set = active_fd_set;
         if (select(max_fd + 1, &read_fd_set, NULL, NULL, NULL) < 0) {
@@ -110,7 +117,7 @@ int main() {
                         cout << "Client disconnected" << endl;
                     } else {
                         buffer[ret] = '\0';
-                        cout << "Received from client: " << buffer << endl; // Debug output
+                        cout << "Received from client: " << buffer << endl;
                         if (strncmp(buffer, "Ready", 5) == 0) {
                             write(i, "Monitor", 7);
                         } else if (strncmp(buffer, "Link Down", 9) == 0) {
