@@ -139,67 +139,89 @@ void get_interface_stat(const string &interface, string &data) {
         infile.close();
     }
 
-    if (operstate == "down") {
-        set_if_up(interface.c_str());
-    }
-
-    data = "Interface: " + interface + " state: " + operstate + " up_count: " + to_string(carrier_up_count) + " down_count: " + to_string(carrier_down_count) + "\n" +
-           "rx_bytes: " + to_string(rx_bytes) + " rx_dropped: " + to_string(rx_dropped) + " rx_errors: " + to_string(rx_errors) + " rx_packets: " + to_string(rx_packets) + "\n" +
-           "tx_bytes: " + to_string(tx_bytes) + " tx_dropped: " + to_string(tx_dropped) + " tx_errors: " + to_string(tx_errors) + " tx_packets: " + to_string(tx_packets) + "\n\n";
+    data = "Interface:" + interface +
+           " state:" + operstate +
+           " up_count:" + to_string(carrier_up_count) +
+           " down_count:" + to_string(carrier_down_count) +
+           " rx_bytes:" + to_string(rx_bytes) +
+           " rx_dropped:" + to_string(rx_dropped) +
+           " rx_errors:" + to_string(rx_errors) +
+           " rx_packets:" + to_string(rx_packets) +
+           " tx_bytes:" + to_string(tx_bytes) +
+           " tx_dropped:" + to_string(tx_dropped) +
+           " tx_errors:" + to_string(tx_errors) +
+           " tx_packets:" + to_string(tx_packets);
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        cerr << "Usage: " << argv[0] << " <interface>" << endl;
-        return EXIT_FAILURE;
+    signal(SIGINT, handle_sigint);
+
+    if (argc != 2) {
+        cerr << "Usage: " << argv[0] << " <interface_name>" << endl;
+        return 1;
     }
 
-    char buffer[BUF_SIZE];
-    signal(SIGINT, handle_sigint);
     interface = argv[1];
 
     struct sockaddr_un addr;
+    char buffer[BUF_SIZE];
+
     sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sockfd < 0) {
-        perror("socket error");
-        return EXIT_FAILURE;
+        perror("socket");
+        exit(-1);
     }
 
-    memset(&addr, 0, sizeof(addr));
+    memset(&addr, 0, sizeof(struct sockaddr_un));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
 
-    while (connect(sockfd, (struct sockaddr*)&addr, sizeof(struct sockaddr_un)) < 0) {
-        sleep(1);
-    }
-
-    cout << "Connected to server" << endl; // Debug output
-
-    write(sockfd, "Ready", 5);
-
-    while (is_running) {
-        int bytes_read = read(sockfd, buffer, BUF_SIZE);
-        if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';
-            cout << "Received command: " << buffer << endl; // Debug output
-            if (strncmp(buffer, "Monitor", 7) == 0) {
-                while (is_running) {
-                    string data;
-                    get_interface_stat(interface, data);
-                    write(sockfd, data.c_str(), data.size());
-                    sleep(1);
-                }
-            } else if (strncmp(buffer, "Set Link Up", 11) == 0) {
-                set_if_up(interface.c_str());
-                write(sockfd, "Link Up", 7);
-            } else if (strncmp(buffer, "Shut Down", 9) == 0) {
-                is_running = false;
-                write(sockfd, "Done", 4);
-                break;
-            }
+    while (connect(sockfd, (struct sockaddr*)&addr, sizeof(struct sockaddr_un)) == -1) {
+        if (errno == ENOENT) {
+            sleep(1);
+        } else {
+            perror("connect error");
+            exit(-1);
         }
     }
 
+    write(sockfd, "Ready", 6);
+
+    while (is_running) {
+        int ret = read(sockfd, buffer, BUF_SIZE);
+        if (ret <= 0) {
+            if (ret < 0) {
+                perror("read");
+            }
+            break;
+        }
+
+        buffer[ret] = '\0';
+        if (strncmp(buffer, "Monitor", 7) == 0) {
+            while (is_running) {
+                string stats;
+                get_interface_stat(interface, stats);
+                cout << stats << endl;
+
+                if (stats.find("state:down") != string::npos) {
+                    write(sockfd, "Link Down", 10);
+                    set_if_up(interface.c_str());
+                }
+
+                write(sockfd, stats.c_str(), stats.size() + 1);
+                sleep(1);
+            }
+        } else if (strncmp(buffer, "Set Link Up", 11) == 0) {
+            if (set_if_up(interface.c_str()) < 0) {
+                perror("set link up error");
+            }
+        } else if (strncmp(buffer, "Shut Down", 9) == 0) {
+            break;
+        }
+    }
+
+    write(sockfd, "Done", 5);
     close(sockfd);
+
     return 0;
 }
