@@ -10,7 +10,7 @@
 #include <csignal>
 #include <errno.h>
 
-#define SOCKET_PATH "/tmp/interfaceMonitor.socket"
+#define SOCKET_PATH "/tmp/interfaceMon"
 #define BUF_SIZE 200
 
 using namespace std;
@@ -155,14 +155,8 @@ void get_interface_stat(const string &interface, string &data) {
 }
 
 int main(int argc, char *argv[]) {
-    signal(SIGINT, handle_sigint);
-
-    if (argc != 2) {
-        cerr << "Usage: " << argv[0] << " <interface_name>" << endl;
-        return 1;
-    }
-
     interface = argv[1];
+    signal(SIGINT, handle_sigint);
 
     struct sockaddr_un addr;
     char buffer[BUF_SIZE];
@@ -205,14 +199,14 @@ int main(int argc, char *argv[]) {
                 cout << stats << endl;
 
                 if (stats.find("state:down") != string::npos) {
-                    write(sockfd, "Link Down", 10);
+                    write(sockfd, "!Link Down!", 12);
                     set_if_up(interface.c_str());
                 }
 
                 write(sockfd, stats.c_str(), stats.size() + 1);
                 sleep(1);
             }
-        } else if (strncmp(buffer, "Set Link Up", 11) == 0) {
+        } else if (strncmp(buffer, "!Set Link Up!", 13) == 0) {
             if (set_if_up(interface.c_str()) < 0) {
                 perror("set link up error");
             }
