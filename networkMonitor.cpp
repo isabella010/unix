@@ -20,7 +20,7 @@ vector<string> interfaces;
 
 int serverFd;
 
-void handleSigint(int sigint){ //void handleSigint(int sig){
+void handleSigint(int sigint){
     for(auto i = 0; i < clientFds.size(); ++i){
         write(clientFds[i], "shut down", 10);
     }
