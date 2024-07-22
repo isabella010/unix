@@ -11,11 +11,10 @@
 #include <algorithm>
 #include <sys/select.h>
 
-#define SOCKET_PATH "/tmp/interfaceMonitor.socket"
-#define BUF_SIZE 200
-
 using namespace std;
 
+#define SOCKET_PATH "/tmp/interfaceMonitor.socket"
+#define BUF_SIZE 200
 int serverFd;
 vector<int> clientFds;
 vector<string> interfaces;
