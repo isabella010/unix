@@ -150,7 +150,8 @@ void get_interface_stat(const string &interface, string &data) {
            " tx_bytes:" + to_string(tx_bytes) +
            " tx_dropped:" + to_string(tx_dropped) +
            " tx_errors:" + to_string(tx_errors) +
-           " tx_packets:" + to_string(tx_packets);
+           " tx_packets:" + to_string(tx_packets) + 
+           "\n";
 }
 
 int main(int argc, char *argv[]) {
