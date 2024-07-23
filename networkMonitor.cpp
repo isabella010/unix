@@ -20,20 +20,20 @@ using namespace std;
 vector<int> clientFds;
 vector<string> interfaces;
 
-int serverFd; // File descriptor for the server socket
+int serverFd;
 
-// Signal handler to manage graceful shutdown on SIGINT (Ctrl+C)
+//signal handler for SIGINT
 void handleSigint(int sigint) {
-    // Notify all clients to shut down
+    //tells clients to shut down
     for(auto i = 0; i < clientFds.size(); ++i){
         write(clientFds[i], "shut down", 10);
     }
     
-    // Close the server socket and remove the socket file
+    //close server socket and remove the file
     close(serverFd);
     unlink(SOCKET_PATH);
     
-    // Close all client sockets
+    //close client sockets
     for(auto i = 0; i < clientFds.size(); ++i){
         close(clientFds[i]);
     }
@@ -41,8 +41,11 @@ void handleSigint(int sigint) {
 }
 
 int main() {
-    // Register signal handler for SIGINT
-    signal(SIGINT, handleSigint);
+    struct sigaction sa;
+    sa.sa_handler = handleSigint;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
 
     struct sockaddr_un name;
     char buffer[BUF_SIZE];
@@ -51,7 +54,7 @@ int main() {
     cout << "enter # interfaces to monitor: ";
     cin >> interfaceCount;
 
-    // Get interface names from user input and store them in the vector
+    //get interface names
     for (int i = 0; i < interfaceCount; ++i) {
         string interface;
         cout << "Enter name of interface " << i + 1 << ": ";
@@ -59,80 +62,81 @@ int main() {
         interfaces.push_back(interface);
     }
 
-    // Create the server socket
+    //create server socket
     serverFd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (serverFd < 0) {
         perror("socket");
         exit(-1);
     }
 
-    // Initialize the sockaddr_un structure and set the socket path
-    memset(&name, 0, sizeof(struct sockaddr_un));
+    //initialize sockaddr_un structure and set socket path
+    memset(&name, 0, sizeof(name));
     name.sun_family = AF_UNIX;
     strncpy(name.sun_path, SOCKET_PATH, sizeof(name.sun_path) - 1);
 
-    // Bind the server socket to the specified path
+    //bind server socket to the path
     if (bind(serverFd, (struct sockaddr*)&name, sizeof(name)) < 0) {
         perror("bind");
         exit(-1);
     }
 
-    // Listen for incoming connections, with a backlog of 'interfaceCount'
+    //listen for connections
     if(listen(serverFd, interfaceCount) < 0){
         perror("listen");
         exit(-1);
     }
 
-    cout << "Waiting for connections..." << endl;
+    cout << "waiting for connections" << endl;
 
-    fd_set active_fd_set; // Set of active file descriptors
-    fd_set read_fd_set; // Set of file descriptors ready for reading
-    FD_ZERO(&active_fd_set); // Initialize the set to empty
-    FD_SET(serverFd, &active_fd_set); // Add the server socket to the set
-    int max_fd = serverFd; // Track the highest file descriptor number
+    fd_set active_fd_set; //set of active file descriptors
+    fd_set read_fd_set; //set of file descriptors for reading
+    FD_ZERO(&active_fd_set); //set the set to empty
+    FD_SET(serverFd, &active_fd_set); //add server socket to set
+    int maxFd = serverFd; // the highest fd number
 
-    // Fork a child process for each interface to monitor
+    //fork child process for each of the interfaces 
     for(auto i = 0; i < interfaces.size(); ++i){
         const string &interface = interfaces[i];
         
         if(fork() == 0){
-            execl("./interfaceMon", "./interfaceMon", interface.c_str(), NULL); // Execute the interface monitor process
-            exit(0); // Ensure the child process exits after execution
+            //executes the interface monitor process
+            execl("./interfaceMon", "./interfaceMon", interface.c_str(), NULL);
+            exit(0);
         }
     }
 
-    // Main loop to handle incoming connections and data
+    //main loop for the connections/ data coming in
     while(true){
-        read_fd_set = active_fd_set; // Copy the active file descriptor set
+        read_fd_set = active_fd_set; //copy the active file descriptor set
         
-        // Wait for activity on any of the file descriptors
-        if(select(max_fd + 1, &read_fd_set, NULL, NULL, NULL) < 0){
+        //wait for activity from the fd's
+        if(select(maxFd + 1, &read_fd_set, NULL, NULL, NULL) < 0){
             perror("select");
-            break; // Break the loop on error
+            break;
         }
 
-        // Iterate over all file descriptors up to the highest one
-        for(int i = 0; i <= max_fd; ++i){
+        //loops thorugh all fds
+        for(int i = 0; i <= maxFd; ++i){
             if (FD_ISSET(i, &read_fd_set)){
                 if (i == serverFd) {
-                    // Handle new client connection
+                    //to handel new client connection
                     int clientFd = accept(serverFd, NULL, NULL);
                     if (clientFd < 0) {
                         perror("accept");
                     } 
                     else {
-                        // Add the new client to the active set and update max_fd
+                        //add new client to the active set and update maxFd
                         FD_SET(clientFd, &active_fd_set);
-                        if(clientFd > max_fd){
-                            max_fd = clientFd;
+                        if(clientFd > maxFd){
+                            maxFd = clientFd;
                         }
                         
-                        clientFds.push_back(clientFd); // Store the client's file descriptor
+                        clientFds.push_back(clientFd); //add client fd to the vector
                         cout << "Accepted connection from client" << endl;
                     }
                 } 
                 else {
-                    // Handle data from an existing client
+                    //handle data from an existing client
                     int ret = read(i, buffer, BUF_SIZE);
                     
                     if(ret <= 0){
@@ -140,17 +144,17 @@ int main() {
                             perror("read");
                         }
                         
-                        // Close and remove the client on read error or disconnection
+                        //close client if theres an error or they are disconnection
                         close(i);
                         FD_CLR(i, &active_fd_set);
                         clientFds.erase(remove(clientFds.begin(), clientFds.end(), i), clientFds.end());
                         cout << "Client disconnected" << endl;
                     } 
                     else {
-                        buffer[ret] = '\0'; // Null-terminate the received data
+                        buffer[ret] = '\0';
                         cout << buffer << endl;
                         
-                        // Respond to specific messages from the client
+                        //responses for client messages
                         if (strncmp(buffer, "Ready", 5) == 0) {
                             write(i, "Monitor", 7);
                         } 
@@ -158,7 +162,7 @@ int main() {
                             write(i, "Set Link Up", 11);
                         } 
                         else if (strncmp(buffer, "Done", 4) == 0) {
-                            // Close and remove the client when it is done
+                            //close client when it is done
                             close(i);
                             FD_CLR(i, &active_fd_set);
                             clientFds.erase(remove(clientFds.begin(), clientFds.end(), i), clientFds.end());
@@ -170,7 +174,7 @@ int main() {
         }
     }
 
-    // Cleanup code: Close all open file descriptors and remove the socket file
+    //cleans code
     close(serverFd);
     unlink(SOCKET_PATH);
     for (auto i = 0; i < clientFds.size(); ++i) {
